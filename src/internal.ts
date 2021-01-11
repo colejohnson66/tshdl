@@ -106,6 +106,9 @@ class Range {
     toString(): string {
         return `Range{start:${this.start},stop:${this.stop},step:${this.step}}`;
     }
+    [Symbol.toStringTag](): string {
+        return this.toString();
+    }
 }
 
 export { IDictionary, Range };
