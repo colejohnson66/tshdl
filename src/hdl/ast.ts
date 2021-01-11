@@ -118,6 +118,9 @@ class Shape {
             return `Shape.signed{${this.width}}`;
         return `Shape.unsigned{${this.width}}`;
     }
+    [Symbol.toStringTag](): string {
+        return this.toString();
+    }
 
     equals(other: ShapeCompareTo): boolean {
         if (Array.isArray(other))
@@ -135,7 +138,7 @@ type BitwiseOp = "&" | "^" | "|" | "^"
 type EqualityOp = "==" | "!=" | "<" | "<=" | ">" | ">="
 type OtherOp = "abs"
 type ConvertOp = "u" | "s" | "b";
-type TestOp = "any" | "all"
+type TestOp = "any" | "all" | "mux"
 type ValueOp = UnaryOp | ArithOp | ShiftOp | BitwiseOp | EqualityOp | OtherOp | ConvertOp | TestOp;
 
 // WIP: Compile type validation of `Value.matches`
@@ -144,6 +147,7 @@ type ValidMatch<S> =
     S extends ""
     ? ""
     : (S extends `${infer S0}${infer Ss}`
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ? (S0 extends ValidMatchChar ? `${S0}${ValidMatch<Ss>}` : never)
         : never);
 
@@ -155,9 +159,8 @@ abstract class Value {
 
     // TODO: annotate
     static cast(obj: ValueCastFrom): Value {
-        // TODO: duplicate
         if (obj instanceof Value)
-            throw "";
+            return obj;
 
         if (typeof obj === "number")
             throw ""; // TODO: Const(obj)
@@ -173,7 +176,7 @@ abstract class Value {
         this.src = getSourceInfo(__srcLoc + 1);
     }
 
-    op(op: ValueOp, ...args: ValueCastFrom[]) {
+    op(op: ValueOp, ...args: ValueCastFrom[]): Operator {
         throw "";
     }
 
@@ -189,7 +192,7 @@ abstract class Value {
         throw "";
     }
 
-    matches(...patterns: string[]) {
+    matches(...patterns: string[]): boolean {
         patterns.forEach((testStr) => {
             assert(/[^01*]*/.test(testStr), `Match test string '${testStr}' contains invalid characters.`);
         });
@@ -200,16 +203,184 @@ abstract class Value {
         throw "";
     }
 
-    abstract shape(): Shape;
-
-    __lhsSignals(): never {
+    __lhsSignals(): SignalSet {
         throw "Value cannot be used in assignments.";
     }
-    abstract __rhsSignals(): unknown;
+    abstract __rhsSignals(): SignalSet;
 
-    __asConst(): never {
+    __asConst(): Const {
         throw "Value cannot be evaluated as a constant.";
+    }
+
+    abstract toString(): string;
+
+    abstract get shape(): Shape;
+}
+
+/**
+ * A constant, literal integer value.
+ */
+class Const extends Value {
+    public value: bigint;
+    public shape: Shape;
+
+    static normalize(value: bigint, shape: Shape): bigint {
+        const { width, signed } = shape;
+
+        // a string of 1 bits `width` long
+        const mask = (1n << BigInt(width)) - 1n;
+
+        // chop off bits at positions greater than `width`
+        value &= mask;
+
+        // set the highest bit if `signed`
+        if (signed && (value >> BigInt(width - 1)))
+            value |= ~mask;
+
+        return value;
+    }
+
+    /**
+     * @param value The value this `Const` represents
+     * @param shape The `Shape` this `Const` takes
+     * @param __srcLoc Internal parameter; Do not use
+     * 
+     * @default
+     * shape: the smallest `Shape` that can hold `value`
+     * 
+     * @remarks
+     * If `value` is too large to fit into `shape`, it will be coerced down
+     */
+    constructor(value: bigint, shape: Shape | undefined = undefined, __srcLoc = 0) {
+        super(__srcLoc + 1);
+
+        this.shape = shape || new Shape(bitsFor(value), value < 0);
+        this.value = Const.normalize(value, this.shape);
+    }
+
+    __rhsSignals(): SignalSet {
+        return {};
+    }
+
+    __asConst(): Const {
+        return this;
+    }
+
+    toString(): string {
+        return `Const{value=${this.value},shape=${this.shape}}`;
+    }
+    [Symbol.toStringTag](): string {
+        return this.toString();
     }
 }
 
-export { DUID, Shape, Value };
+class AnyValue extends Value {
+    public shape: Shape;
+
+    constructor(shape: ShapeCastFrom, __srcLoc = 0) {
+        super(__srcLoc + 1);
+        this.shape = Shape.cast(shape);
+    }
+
+    __rhsSignals(): SignalSet {
+        return {};
+    }
+
+    toString(): string {
+        return `AnyValue{shape=${this.shape}}`;
+    }
+    [Symbol.toStringTag](): string {
+        return this.toString();
+    }
+}
+
+// TODO: AnyConst
+// TODO: AnySeq
+
+class Operator extends Value {
+    public operator: ValueOp;
+    public operands: Value[];
+
+    constructor(operator: ValueOp, operands: ValueCastFrom[], __srcLoc = 0) {
+        super(__srcLoc + 1);
+        this.operator = operator;
+        this.operands = operands.map((value) => Value.cast(value));
+    }
+
+    get shape(): Shape {
+        throw "";
+    }
+
+    __rhsSignals(): SignalSet {
+        // TODO: join all of operands[].__rhsSignals()
+        throw "";
+    }
+
+    toString(): string {
+        return `${this.operator}(${this.operands.map((value) => value.toString()).join(",")})`;
+    }
+    [Symbol.toStringTag](): string {
+        return this.toString();
+    }
+}
+
+function Mux(selector: ValueCastFrom, valTrue: Value, valFalse: Value): Operator {
+    const value = Value.cast(selector);
+    const bool = value.op("b");
+    return new Operator("mux", [bool, valTrue, valFalse]);
+}
+
+class Slice extends Value {
+    public value: Value;
+    public start: number;
+    public stop: number;
+
+    constructor(value: ValueCastFrom, start: number, stop: number, __srcLoc = 0) {
+        const value2 = Value.cast(value);
+        const n = value2.shape.width;
+
+        assert((-(n + 1) >= start) && ((n + 1) <= start),
+            `Cannot start a slice ${start} bits into ${n}-bit value.`);
+        assert((-(n + 1) >= stop) && ((n + 1) <= stop),
+            `Cannot stop a slice ${stop} bits into ${n}-bit value.`);
+
+        // negative indexing wraps around
+        if (start < 0)
+            start += n;
+        if (stop < 0)
+            stop = + n;
+
+        assert(stop <= start,
+            `Slice start (${start}) must be less than slice stop (${stop}).`);
+
+        super(__srcLoc + 1);
+        this.value = value2;
+        this.start = start;
+        this.stop = stop;
+    }
+
+    get shape(): Shape {
+        return new Shape(this.stop - this.start);
+    }
+
+    __lhsSignals(): SignalSet {
+        return this.value.__lhsSignals();
+    }
+
+    __rhsSignals(): SignalSet {
+        return this.value.__rhsSignals();
+    }
+
+    toString(): string {
+        return `${this.value}[${this.start}..${this.stop}]`;
+    }
+    [Symbol.toStringTag](): string {
+        return this.toString();
+    }
+}
+
+type SignalSet = {
+    [key: string]: unknown;
+}
+
+export { DUID, Shape, Value, Const, AnyValue, Operator, Mux, Slice };
