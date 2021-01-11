@@ -1,4 +1,5 @@
 import { IDictionary, Range } from "../internal";
+import { SourceInfo, getSourceInfo } from "../tracer";
 
 import { strict as assert } from "assert";
 import { bitsFor } from "../util";
@@ -126,4 +127,89 @@ class Shape {
     }
 }
 
-export { DUID, Shape };
+type ValueCastFrom = Value | number | IDictionary<number>;
+type UnaryOp = "~" | "-";
+type ArithOp = "+" | "-" | "*" | "%" | "/";
+type ShiftOp = "<<" | ">>" | ">>>";
+type BitwiseOp = "&" | "^" | "|" | "^"
+type EqualityOp = "==" | "!=" | "<" | "<=" | ">" | ">="
+type OtherOp = "abs"
+type ConvertOp = "u" | "s" | "b";
+type TestOp = "any" | "all"
+type ValueOp = UnaryOp | ArithOp | ShiftOp | BitwiseOp | EqualityOp | OtherOp | ConvertOp | TestOp;
+
+// WIP: Compile type validation of `Value.matches`
+type ValidMatchChar = "1" | "0" | "*";
+type ValidMatch<S> =
+    S extends ""
+    ? ""
+    : (S extends `${infer S0}${infer Ss}`
+        ? (S0 extends ValidMatchChar ? `${S0}${ValidMatch<Ss>}` : never)
+        : never);
+
+/**
+ * Base class for all tshdl values.
+ */
+abstract class Value {
+    private src: SourceInfo;
+
+    // TODO: annotate
+    static cast(obj: ValueCastFrom): Value {
+        // TODO: duplicate
+        if (obj instanceof Value)
+            throw "";
+
+        if (typeof obj === "number")
+            throw ""; // TODO: Const(obj)
+
+        // TODO: IDictionary<number>
+        throw "";
+    }
+
+    /**
+     * @param __srcLoc Internal parameter; Do not use
+     */
+    constructor(__srcLoc = 0) {
+        this.src = getSourceInfo(__srcLoc + 1);
+    }
+
+    op(op: ValueOp, ...args: ValueCastFrom[]) {
+        throw "";
+    }
+
+    parity() {
+        throw "";
+    }
+
+    static implies(premise: ValueCastFrom, conclusion: ValueCastFrom) {
+        throw "";
+    }
+
+    bitSelect(offset: number, width: number) {
+        throw "";
+    }
+
+    matches(...patterns: string[]) {
+        patterns.forEach((testStr) => {
+            assert(/[^01*]*/.test(testStr), `Match test string '${testStr}' contains invalid characters.`);
+        });
+        throw "";
+    }
+
+    eq(value: ValueCastFrom) {
+        throw "";
+    }
+
+    abstract shape(): Shape;
+
+    __lhsSignals(): never {
+        throw "Value cannot be used in assignments.";
+    }
+    abstract __rhsSignals(): unknown;
+
+    __asConst(): never {
+        throw "Value cannot be evaluated as a constant.";
+    }
+}
+
+export { DUID, Shape, Value };
