@@ -1,6 +1,8 @@
 {
     "files.insertFinalNewline": true,
     "cSpell.words": [
+        "DUID",
+        "signedness",
         "tshdl"
     ],
 }
