@@ -7,10 +7,10 @@ import { strict as assert } from "assert";
  * A `null` for any of the fields means that information was unable to be retrieved.
 */
 type SourceInfo = {
-    function: string | null,
-    file: string | null,
-    line: number | null,
-    column: number | null,
+    readonly function: string | null,
+    readonly file: string | null,
+    readonly line: number | null,
+    readonly column: number | null,
 } | null;
 
 /**
