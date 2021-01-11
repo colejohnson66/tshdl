@@ -3,10 +3,12 @@ const child_process = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
+const noDelete = process.argv.indexOf("--noDelete") !== -1;
+
 const binDir = path.join(process.cwd(), "node_modules", ".bin");
 const distDir = path.join(process.cwd(), "dist");
 
-if (fs.existsSync(distDir)) {
+if (!noDelete && fs.existsSync(distDir)) {
     console.log("Deleting ./dist");
     fs.rm(distDir, {
         force: true,
